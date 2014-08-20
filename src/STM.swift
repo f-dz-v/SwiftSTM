@@ -62,10 +62,8 @@ public func atomic<A> (stm:STM<A>) -> A {
         if tr.forceRetry {
             tr.validateAndWait()
             needRestart = true
-            println("retry() call")
         } else if !(tr.validateAndCommit()) {
             needRestart = true
-            println("validateAndCommit() failed")
         }
     } while needRestart
     return res
