@@ -315,7 +315,7 @@ private class Transactions {
             if let newVal = writeLog {
                 val._setValue(newVal.copy())
                 for (_, cond) in val.waitQ {
-                    pthread_cond_broadcast(cond)
+                    pthread_cond_signal(cond)
                 }
             }
         }
