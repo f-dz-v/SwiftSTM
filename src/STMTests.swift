@@ -72,16 +72,11 @@ class STMTests: XCTestCase {
                      { writeTVar(tvar1, SimpleObject(6,9)) } >>>=
                      { readTVar(tvar1)                     }
 
-        var t:clock_t = clock()
         let (x1, y1) = atomic(stmTest1).getXY()
-        t = clock() - t
-        println("[TIME] (write->read->write->read) \(Float(t)*1000/Float(CLOCKS_PER_SEC)) ms")
         
         var tvar2 = newTVar(someObj)
-        t = clock()
+        
         let (x2, y2) = atomic(readTVar(tvar2)).getXY()
-        t = clock() - t
-        println("[TIME] (read) \(Float(t)*1000/Float(CLOCKS_PER_SEC)) ms")
         
         XCTAssert(x1 == 6 && y1 == 9, "writeTVar then readTVar OK")
         XCTAssert(x2 == 11 && y2 == 23, "readTVar OK")
@@ -110,12 +105,7 @@ class STMTests: XCTestCase {
         var x2 = 0
         var y2 = 0
         
-        dispatch_group_async(group, queue) {
-            var t:clock_t = clock()
-            (x1, y1) = atomic(stmTest1).getXY()
-            t = clock() - t
-            println("[TIME] (write->read->write->read) \(Float(t)*1000/Float(CLOCKS_PER_SEC)) ms")
-        }
+        dispatch_group_async(group, queue) { (x1, y1) = atomic(stmTest1).getXY() }
         
         dispatch_group_async(group, queue) {
             sleep(1)
@@ -200,10 +190,7 @@ class STMTests: XCTestCase {
         let group = dispatch_group_create()
         
         dispatch_group_async(group, queue) {
-            var t:clock_t = clock()
             atomic(stmTest1)
-            t = clock() - t
-            println("[TIME] (3 tvars: 3 reads, 2 vars ) \(Float(t)*1000/Float(CLOCKS_PER_SEC)) ms")
         }
         
         dispatch_group_async(group, queue) {
