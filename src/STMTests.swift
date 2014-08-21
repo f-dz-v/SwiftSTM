@@ -76,7 +76,7 @@ class STMTests: XCTestCase {
         
         var tvar2 = newTVar(someObj)
         
-        let (x2, y2) = atomic(readTVar(tvar2)).getXY()
+        let (x2, y2) = readTVarAtomic(tvar2).getXY()
         
         XCTAssert(x1 == 6 && y1 == 9, "writeTVar then readTVar OK")
         XCTAssert(x2 == 11 && y2 == 23, "readTVar OK")
@@ -154,7 +154,7 @@ class STMTests: XCTestCase {
         }
         dispatch_group_wait(group, DISPATCH_TIME_FOREVER)
         
-        (x1, y1) = atomic(readTVar(tvar)).getXY()
+        (x1, y1) = readTVarAtomic(tvar).getXY()
         
         XCTAssert((x1 == 16 && y1 == 29) && (x2 == 6 && y2 == 9), "retry OK")
     }
@@ -199,9 +199,9 @@ class STMTests: XCTestCase {
         
         dispatch_group_wait(group, DISPATCH_TIME_FOREVER)
         
-        let arrRes = atomic(readTVar(tvar2))
+        let arrRes = readTVarAtomic(tvar2)
         let (x1, y1) = (arrRes[0], arrRes[1])
-        let (x2, y2) = atomic(readTVar(tvar3)).getXY()
+        let (x2, y2) = readTVarAtomic(tvar3).getXY()
         
         XCTAssert((x1 == 105 && y1 == 10) && (x2 == 8 && y2 == 10), "3 tvars OK")
     }
@@ -240,7 +240,7 @@ class STMTests: XCTestCase {
         }
         dispatch_group_wait(group, DISPATCH_TIME_FOREVER)
         
-        x1 = atomic(readTVar(tvar))
+        x1 = readTVarAtomic(tvar)
         
         XCTAssert(x1 == 16 && x2 == 6, "retry OK")
 

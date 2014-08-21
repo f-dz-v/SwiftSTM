@@ -221,6 +221,18 @@ public func newTVar<K,V>(val: [K:V]) -> TVarDictionary<K,V> {
     return TVarDictionary(val)
 }
 
+public func newTVarSTM<T: TVarProtocol>(val: T) -> STM<TVar<T>> {
+    return returnM(TVar(val))
+}
+
+public func newTVarSTM<T>(val: [T]) -> STM<TVarArray<T>> {
+    return returnM(TVarArray(val))
+}
+
+public func newTVarSTM<K,V>(val: [K:V]) -> STM<TVarDictionary<K,V>> {
+    return returnM(TVarDictionary(val))
+}
+
 //MARK: readTVar
 public func readTVar<T: TVarProtocol>(tvar: TVar<T>) -> STM<T> {
     return STM({ _readTVar(tvar, $0) })
@@ -232,6 +244,18 @@ public func readTVar<T>(tvar: TVarArray<T>) -> STM<[T]> {
 
 public func readTVar<K, V>(tvar: TVarDictionary<K, V>) -> STM<[K:V]> {
     return STM({ _readTVar(tvar, $0) })
+}
+
+public func readTVarAtomic<T: TVarProtocol>(tvar: TVar<T>) -> T {
+    return (tvar.value.copy() as T)
+}
+
+public func readTVarAtomic<T>(tvar: TVarArray<T>) -> [T] {
+    return (tvar.value.copy() as [T])
+}
+
+public func readTVarAtomic<K, V>(tvar: TVarDictionary<K, V>) -> [K:V] {
+    return (tvar.value.copy() as [K:V])
 }
 
 //MARK: writeTVar
