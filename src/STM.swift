@@ -287,7 +287,7 @@ public func modifyTVar<K,V> (tvar: TVarDictionary<K,V>, f: ([K:V]->[K:V])) -> ST
 /**
 Restarts transaction. 
 */
-public func retry() -> STM<()> {
+public func retryExperimental() -> STM<()> {
     return STM({return ((), _retry($0)) })
 }
 
