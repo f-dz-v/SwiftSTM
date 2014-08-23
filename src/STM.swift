@@ -56,6 +56,8 @@ public func atomic<A> (stm:STM<A>) -> A {
     var needRestart = false
     var res: A
     var tr: Transactions
+	// var env:UnsafeMutablePointer<Int32> = UnsafeMutablePointer.alloc(sizeof(jmp_buf))
+	// var jmpres = setjmp(env)
     do {
         needRestart = false
         (res, tr) = stm.run(Transactions())
@@ -287,7 +289,7 @@ public func modifyTVar<K,V> (tvar: TVarDictionary<K,V>, f: ([K:V]->[K:V])) -> ST
 /**
 Restarts transaction. 
 */
-public func retryExperimental() -> STM<()> {
+public func retry() -> STM<()> {
     return STM({return ((), _retry($0)) })
 }
 
@@ -320,6 +322,7 @@ private class Transactions {
     private var thereIsNoReads = true
     private var id:Int
     private var cond: UnsafeMutablePointer<pthread_cond_t>
+    // private var env: UnsafeMutablePointer<Int32>
     
     init() {
         self.id = _IDGenerator.sharedInstance.requestID()
@@ -592,6 +595,7 @@ private func _writeTVar<K,V> (tvar: TVarDictionary<K,V>, val: [K:V], trans: Tran
 
 private func _retry(trans: Transactions) -> Transactions {
     trans.forceRetry = true
+    // longjmp(trans.env, 1)
     return trans
 }
 
