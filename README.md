@@ -26,7 +26,7 @@ let stmTest1:STM<()> =
             let (x3, y3) = obj3.getXY()
             
             if x1 == 1 {
-                return retryExperimental()
+                return retry()
             } else {
                 return writeTVar(tvar2, [x1+x3, y2+y3])                >>>
                      { writeTVar(tvar3, SimpleObject(x2+x3, y2+y3))  } >>>

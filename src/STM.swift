@@ -670,12 +670,6 @@ private func __writeTVar<K,V> (tvar: TVarDictionary<K,V>, val: [K:V], trans: Tra
     }
 }
 
-private func _retry(trans: Transactions) -> Transactions {
-    trans.forceRetry = true
-    // longjmp(trans.env, 1)
-    return trans
-}
-
 //---------------------//
 //MARK: Private utils
 //---------------------//
