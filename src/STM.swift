@@ -32,21 +32,21 @@ public protocol TVarProtocol {
 }
 
 public class STM<A> {
-    private var run: (Transactions -> (A, Transactions))
+    private var run: _STM<A?>
     
-    private init(_ x: A) {
-        run = {return (x, $0)}
+    private init(_ x: _STM<A?>) {
+        run = x
     }
     
-    private init(_ f: Transactions -> (A, Transactions)) {
-        run = f
-    }
-    
-    private class func ret(val:A) -> STM {
+    private class func ret(val: _STM<A?>) -> STM {
         return STM(val)
     }
-
 }
+
+public func returnM<A> (x:A) -> STM<A> {
+    return STM.ret(returnM(x))
+}
+
 
 /**
 Performs transaction. Warning: Swifts type system does not allow to explicitly mark function as pure.
@@ -54,25 +54,20 @@ So you still able to add function with side-effects in transactions chain
 */
 public func atomic<A> (stm:STM<A>) -> A {
     var needRestart = false
-    var res: A
+    var res: A?
     var tr: Transactions
-	// var env:UnsafeMutablePointer<Int32> = UnsafeMutablePointer.alloc(sizeof(jmp_buf))
-	// var jmpres = setjmp(env)
     do {
         needRestart = false
-        (res, tr) = stm.run(Transactions())
-        if tr.forceRetry {
+        (res, tr) = stm.run.run(Transactions())
+        if res == nil {
             tr.validateAndWait()
             needRestart = true
         } else if !(tr.validateAndCommit()) {
             needRestart = true
         }
     } while needRestart
-    return res
-}
 
-public func returnM<A> (x:A) -> STM<A> {
-    return STM.ret(x)
+    return res!
 }
 
 infix operator  >>>= {
@@ -80,10 +75,15 @@ infix operator  >>>= {
 }
 
 public func >>>= <A,B> (processor: STM<A>, processorGenerator: (A -> STM<B>)) -> STM<B> {
-    return STM( {st -> (B, Transactions) in
-        let (x, st1) = processor.run(st)
-        return processorGenerator(x).run(st1)
-    })
+    let res: _STM<B?> = processor.run >>>= {
+        if let x = $0 {
+            return processorGenerator(x).run
+        } else {
+            return returnM(nil)
+        }
+    }
+
+    return STM(res)
 }
 
 infix operator  >>> {
@@ -91,10 +91,15 @@ infix operator  >>> {
 }
 
 public func >>> <A,B> (processor: STM<A>, processorGenerator: (() -> STM<B>)) -> STM<B> {
-    return STM( {st -> (B, Transactions) in
-        let (_, st1) = processor.run(st)
-        return processorGenerator().run(st1)
-    })
+    let res: _STM<B?> = processor.run >>>= {
+        if let x = $0 {
+            return processorGenerator().run
+        } else {
+            return returnM(nil)
+        }
+    }
+
+    return STM(res)
 }
 
 public class TVar<T: TVarProtocol where T: Equatable>: _TVarPrivateProtocol {
@@ -134,7 +139,7 @@ public class TVar<T: TVarProtocol where T: Equatable>: _TVarPrivateProtocol {
 //    public func setValue(x:T) {
 //        self.value = x.copy()
 //    }
-//    
+//
 //    public func getValue() -> T {
 //        return self.value.copy()
 //    }
@@ -237,15 +242,15 @@ public func newTVarSTM<K,V>(val: [K:V]) -> STM<TVarDictionary<K,V>> {
 
 //MARK: readTVar
 public func readTVar<T: TVarProtocol>(tvar: TVar<T>) -> STM<T> {
-    return STM({ _readTVar(tvar, $0) })
+    return STM( _readTVar(tvar) )
 }
 
 public func readTVar<T>(tvar: TVarArray<T>) -> STM<[T]> {
-    return STM({ _readTVar(tvar, $0) })
+    return STM( _readTVar(tvar) )
 }
 
 public func readTVar<K, V>(tvar: TVarDictionary<K, V>) -> STM<[K:V]> {
-    return STM({ _readTVar(tvar, $0) })
+    return STM( _readTVar(tvar) )
 }
 
 public func readTVarAtomic<T: TVarProtocol>(tvar: TVar<T>) -> T {
@@ -262,15 +267,15 @@ public func readTVarAtomic<K, V>(tvar: TVarDictionary<K, V>) -> [K:V] {
 
 //MARK: writeTVar
 public func writeTVar<T: TVarProtocol> (tvar: TVar<T>, val: T) -> STM<()> {
-    return STM({ ((), _writeTVar(tvar, val, $0)) })
+    return STM( _writeTVar(tvar, val) )
 }
 
 public func writeTVar<T> (tvar: TVarArray<T>, val: [T]) -> STM<()> {
-    return STM({ ((), _writeTVar(tvar, val, $0)) })
+    return STM(  _writeTVar(tvar, val) )
 }
 
 public func writeTVar<K,V> (tvar: TVarDictionary<K,V>, val: [K:V]) -> STM<()> {
-    return STM({ ((), _writeTVar(tvar, val, $0)) })
+    return STM( _writeTVar(tvar, val) )
 }
 
 //MARK: modifyTVar
@@ -287,16 +292,88 @@ public func modifyTVar<K,V> (tvar: TVarDictionary<K,V>, f: ([K:V]->[K:V])) -> ST
 }
 
 /**
-Restarts transaction. 
+Restarts transaction.
 */
-public func retry() -> STM<()> {
-    return STM({return ((), _retry($0)) })
+public func retry<A>() -> STM<A> {
+    return STM.ret(returnM(nil))
 }
-
 
 //---------------------//
 //MARK: Private section
 //---------------------//
+
+private class _STM<A> {
+    private var run: (Transactions -> (A, Transactions))
+    
+    private init(_ x: A) {
+        run = {return (x, $0)}
+    }
+    
+    private init(_ f: Transactions -> (A, Transactions)) {
+        run = f
+    }
+    
+    private class func ret(val:A) -> _STM {
+        return _STM(val)
+    }
+
+}
+
+private func returnM<A> (x: A) -> _STM<A> {
+    return _STM.ret(x)
+}
+
+private func >>>= <A,B> (processor: _STM<A>, processorGenerator: (A -> _STM<B>)) -> _STM<B> {
+    return _STM( {st -> (B, Transactions) in
+        let (x, st1) = processor.run(st)
+        return processorGenerator(x).run(st1)
+    })
+}
+
+private func >>> <A,B> (processor: _STM<A>, processorGenerator: (() -> _STM<B>)) -> _STM<B> {
+    return _STM( {st -> (B, Transactions) in
+        let (_, st1) = processor.run(st)
+        return processorGenerator().run(st1)
+    })
+}
+
+private func _newTVarSTM<T: TVarProtocol>(val: T) -> _STM<TVar<T>> {
+    return returnM(TVar(val))
+}
+
+private func _newTVarSTM<T>(val: [T]) -> _STM<TVarArray<T>> {
+    return returnM(TVarArray(val))
+}
+
+private func _newTVarSTM<K,V>(val: [K:V]) -> _STM<TVarDictionary<K,V>> {
+    return returnM(TVarDictionary(val))
+}
+
+//MARK: readTVar
+private func _readTVar<T: TVarProtocol>(tvar: TVar<T>) -> _STM<T?> {
+    return _STM({ __readTVar(tvar, $0) })
+}
+
+private func _readTVar<T>(tvar: TVarArray<T>) -> _STM<[T]?> {
+    return _STM({ __readTVar(tvar, $0) })
+}
+
+private func _readTVar<K, V>(tvar: TVarDictionary<K, V>) -> _STM<[K:V]?> {
+    return _STM({ __readTVar(tvar, $0) })
+}
+
+//MARK: writeTVar
+private func _writeTVar<T: TVarProtocol> (tvar: TVar<T>, val: T) -> _STM<()?> {
+    return _STM({ ((), __writeTVar(tvar, val, $0)) })
+}
+
+private func _writeTVar<T> (tvar: TVarArray<T>, val: [T]) -> _STM<()?> {
+    return _STM({ ((), __writeTVar(tvar, val, $0)) })
+}
+
+private func _writeTVar<K,V> (tvar: TVarDictionary<K,V>, val: [K:V]) -> _STM<()?> {
+    return _STM({ ((), __writeTVar(tvar, val, $0)) })
+}
 
 private protocol _TVarPrivateProtocol {
     // Looks like a dirty hack? so it is ;)
@@ -439,7 +516,7 @@ private class Transactions {
 }
 
 //TODO: nested transactions
-private func orElse<A> (stm1:STM<A>, stm2: STM<A>) -> A {
+private func orElse<A> (stm1:_STM<A>, stm2: _STM<A>) -> A {
     var res: A
     var tr: Transactions
     
@@ -455,7 +532,7 @@ private func orElse<A> (stm1:STM<A>, stm2: STM<A>) -> A {
     return res
 }
 
-private func _readTVar<T: TVarProtocol> (tvar: TVar<T>, trans: Transactions) -> (T, Transactions) {
+private func __readTVar<T: TVarProtocol> (tvar: TVar<T>, trans: Transactions) -> (T?, Transactions) {
     let id = tvar.id
     
     trans.thereIsNoReads = false
@@ -468,7 +545,7 @@ private func _readTVar<T: TVarProtocol> (tvar: TVar<T>, trans: Transactions) -> 
     
     if let (readLog, writeLog) = trans.log[id]  {
         if let val = writeLog {
-            return (val as T, trans)
+            return ((val as T), trans)
         } else {
             let copy = tvar.value.copy() as T
             trans.log[id] = (copy, writeLog)
@@ -481,7 +558,7 @@ private func _readTVar<T: TVarProtocol> (tvar: TVar<T>, trans: Transactions) -> 
     }
 }
 
-private func _readTVar<T> (tvar: TVarArray<T>, trans: Transactions) -> ([T], Transactions) {
+private func __readTVar<T> (tvar: TVarArray<T>, trans: Transactions) -> ([T]?, Transactions) {
     let id = tvar.id
     
     trans.thereIsNoReads = false
@@ -494,7 +571,7 @@ private func _readTVar<T> (tvar: TVarArray<T>, trans: Transactions) -> ([T], Tra
     
     if let (readLog, writeLog) = trans.log[id]  {
         if let val = writeLog {
-            return (val as [T], trans)
+            return ((val as [T]), trans)
         } else {
             let copy = tvar.value.copy() as [T]
             trans.log[id] = (copy, writeLog)
@@ -507,7 +584,7 @@ private func _readTVar<T> (tvar: TVarArray<T>, trans: Transactions) -> ([T], Tra
     }
 }
 
-private func _readTVar<K,V> (tvar: TVarDictionary<K,V>, trans: Transactions) -> ([K:V], Transactions) {
+private func __readTVar<K,V> (tvar: TVarDictionary<K,V>, trans: Transactions) -> ([K:V]?, Transactions) {
     let id = tvar.id
     
     trans.thereIsNoReads = false
@@ -520,7 +597,7 @@ private func _readTVar<K,V> (tvar: TVarDictionary<K,V>, trans: Transactions) -> 
     
     if let (readLog, writeLog) = trans.log[id]  {
         if let val = writeLog {
-            return (val as [K:V], trans)
+            return ((val as [K:V]), trans)
         } else {
             let copy = tvar.value.copy() as [K:V]
             trans.log[id] = (copy, writeLog)
@@ -533,7 +610,7 @@ private func _readTVar<K,V> (tvar: TVarDictionary<K,V>, trans: Transactions) -> 
     }
 }
 
-private func _writeTVar<T: TVarProtocol> (tvar: TVar<T>, val: T, trans: Transactions) -> Transactions {
+private func __writeTVar<T: TVarProtocol> (tvar: TVar<T>, val: T, trans: Transactions) -> Transactions {
     let id = tvar.id
     
     if let _ = trans.tvars[id] {
@@ -553,7 +630,7 @@ private func _writeTVar<T: TVarProtocol> (tvar: TVar<T>, val: T, trans: Transact
     }
 }
 
-private func _writeTVar<T> (tvar: TVarArray<T>, val: [T], trans: Transactions) -> Transactions {
+private func __writeTVar<T> (tvar: TVarArray<T>, val: [T], trans: Transactions) -> Transactions {
     let id = tvar.id
     
     if let _ = trans.tvars[id] {
@@ -573,7 +650,7 @@ private func _writeTVar<T> (tvar: TVarArray<T>, val: [T], trans: Transactions) -
     }
 }
     
-private func _writeTVar<K,V> (tvar: TVarDictionary<K,V>, val: [K:V], trans: Transactions) -> Transactions {
+private func __writeTVar<K,V> (tvar: TVarDictionary<K,V>, val: [K:V], trans: Transactions) -> Transactions {
     let id = tvar.id
     
     if let _ = trans.tvars[id] {
@@ -680,6 +757,9 @@ private class _BigSTMLock  {
     }
 }
 
+//---------------------//
+//MARK: Extensions
+//---------------------//
 extension Int: TVarProtocol {
     public func copy() -> TVarProtocol {
         return self
