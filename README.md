@@ -4,6 +4,7 @@ This library provides Haskell-like Software Transactional Memory for Swift
 
 Warning:
 - Code is in experimental state and not tested for production
+- retry() has fixed return type and currently works fine ONLY if it is last call in the chain.
 
 Example
 ========
