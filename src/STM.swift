@@ -409,7 +409,7 @@ private class Transactions {
 
     deinit {
         pthread_cond_destroy(self.cond)
-        self.cond.destroy()
+        self.cond.dealloc(sizeof(pthread_cond_t))
         _IDGenerator.sharedInstance.freeID(self.id)
     }
 
@@ -446,7 +446,7 @@ private class Transactions {
 
     private func validateAndCommit() -> Bool {
         var res = true
-        
+
         if thereIsNoReads {
             withMutexDo(_BigSTMLock.sharedInstance.lock) {self.commitAllTVars()}
         } else {
@@ -469,6 +469,7 @@ private class Transactions {
                 }
             }
         }
+
         return res
     }
     
@@ -707,7 +708,7 @@ private class _IDGenerator  {
     
     deinit {
         pthread_mutex_destroy(self.lock)
-        self.lock.destroy()
+        self.lock.dealloc(sizeof(pthread_mutex_t))
     }
     
     class var sharedInstance : _IDGenerator {
@@ -743,7 +744,7 @@ private class _BigSTMLock  {
     
     deinit {
         pthread_mutex_destroy(self.lock)
-        self.lock.destroy()
+        self.lock.dealloc(sizeof(pthread_mutex_t))
     }
     
     class var sharedInstance : _BigSTMLock {
