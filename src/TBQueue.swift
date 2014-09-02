@@ -39,66 +39,66 @@ public func newTBQueueSTM<T> (size: Int) -> STM<TBQueue<T>> {
 }
 
 public func writeTBQueue<T> (queue: TBQueue<T>, val: T) -> STM<()> {
-    return ( readTVar(queue._size) >>>= {(size) -> STM<()> in
+    return ( readTVar(queue._size) >>- {(size) -> STM<()> in
              if size == 0 {
                 return retry()
              } else {
-                return writeTVar(queue._size, size - 1) >>>
+                return writeTVar(queue._size, size - 1) >>|
                      { modifyTVar(queue._q, {$0 + [val]}) }
              }} )
 }
 
 public func readTBQueue<T> (queue: TBQueue<T>) -> STM<T> {
-    return ( readTVar(queue._q) >>>= { xs in
+    return ( readTVar(queue._q) >>- { xs in
         if xs.isEmpty {
             return retry()
         }
         let res = xs[0]
         var newArr = xs
         newArr.removeAtIndex(0)
-        return writeTVar(queue._q, newArr) >>>
-             { modifyTVar(queue._size, {$0+1}) } >>>
+        return writeTVar(queue._q, newArr) >>|
+             { modifyTVar(queue._size, {$0+1}) } >>|
              { returnM(res)}
         } )
 }
 
 // TODO: orElse
 public func tryReadTBQueue<T> (queue: TBQueue<T>) -> STM<T?> {
-    return ( readTVar(queue._q) >>>= { xs in
+    return ( readTVar(queue._q) >>- { xs in
         if xs.isEmpty {
             return returnM(nil)
         }
         let res = xs[0]
         var newArr = xs
         newArr.removeAtIndex(0)
-        return writeTVar(queue._q, newArr) >>>
-            { modifyTVar(queue._size, {$0+1}) } >>>
+        return writeTVar(queue._q, newArr) >>|
+            { modifyTVar(queue._size, {$0+1}) } >>|
             { returnM(res)}
         } )
 }
 
 public func unGetTBQueue<T> (queue: TBQueue<T>, val: T) -> STM<()> {
-    return readTVar(queue._size) >>>= { size in
+    return readTVar(queue._size) >>- { size in
         if size == 0 {
             return retry()
         } else {
-            return modifyTVar(queue._q, {[val] + $0}) >>>
+            return modifyTVar(queue._q, {[val] + $0}) >>|
                  { modifyTVar(queue._size, {$0-1}) }
         }
     }
 }
 
 public func peekTBQueue<T> (queue: TBQueue<T>) -> STM<T> {
-    return ( readTBQueue(queue) >>>= { x in
-             unGetTBQueue(queue, x) >>> {
+    return ( readTBQueue(queue) >>- { x in
+             unGetTBQueue(queue, x) >>| {
              returnM(x)
            }})
 }
 
 public func tryPeekTBQueue<T> (queue: TBQueue<T>) -> STM<T?> {
-    return ( tryReadTBQueue(queue) >>>= { x in
+    return ( tryReadTBQueue(queue) >>- { x in
         if let _x = x {
-            return unGetTBQueue(queue, _x) >>> { returnM(_x) }
+            return unGetTBQueue(queue, _x) >>| { returnM(_x) }
         } else {
             return returnM(nil)
         }
@@ -106,5 +106,5 @@ public func tryPeekTBQueue<T> (queue: TBQueue<T>) -> STM<T?> {
 }
 
 public func isEmptyTBQueue<T> (queue: TBQueue<T>) -> STM<Bool> {
-    return ( readTVar(queue._q) >>>= { returnM($0.isEmpty)} )
+    return ( readTVar(queue._q) >>- { returnM($0.isEmpty)} )
 }

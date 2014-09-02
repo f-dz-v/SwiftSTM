@@ -67,9 +67,9 @@ class STMTests: XCTestCase {
         let someObj = SimpleObject(11, 23)
         
         var tvar1 = newTVar(someObj)
-        let stmTest1 = writeTVar(tvar1, SimpleObject(4,7))   >>>=
-                     { readTVar(tvar1)                     } >>>
-                     { writeTVar(tvar1, SimpleObject(6,9)) } >>>=
+        let stmTest1 = writeTVar(tvar1, SimpleObject(4,7))   >>-
+                     { readTVar(tvar1)                     } >>|
+                     { writeTVar(tvar1, SimpleObject(6,9)) } >>-
                      { readTVar(tvar1)                     }
 
         let (x1, y1) = atomic(stmTest1).getXY()
@@ -92,9 +92,9 @@ class STMTests: XCTestCase {
         }
         
         var tvar = newTVar(someObj)
-        let stmTest1 = modifyTVar(tvar, fun) >>>
+        let stmTest1 = modifyTVar(tvar, fun) >>|
                      { readTVar(tvar) }
-        let stmTest2 = writeTVar(tvar, SimpleObject(6,9)) >>>
+        let stmTest2 = writeTVar(tvar, SimpleObject(6,9)) >>|
                      { readTVar(tvar) }
         
         let queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0)
@@ -125,14 +125,14 @@ class STMTests: XCTestCase {
         }
         
         var tvar = newTVar(someObj)
-        let stmTest1:STM<()> = modifyTVar(tvar, fun) >>>
-                             { readTVar(tvar)}       >>>=
+        let stmTest1:STM<()> = modifyTVar(tvar, fun) >>-
+                             { readTVar(tvar)}       >>|
                              { if $0.x != 16 {
                                     return retry()
                                } else {
                                     return returnM()
                              }}
-        let stmTest2 = writeTVar(tvar, SimpleObject(6,9)) >>>
+        let stmTest2 = writeTVar(tvar, SimpleObject(6,9)) >>|
                      { readTVar(tvar) }
         
         
@@ -169,17 +169,17 @@ class STMTests: XCTestCase {
         var tvar3 = newTVar(someObj3)
         
         let stmTest1:STM<()> =
-                readTVar(tvar1) >>>= { x1 in
-                readTVar(tvar2) >>>= { arr2 in
-                readTVar(tvar3) >>>= { obj3 in
+                readTVar(tvar1) >>- { x1 in
+                readTVar(tvar2) >>- { arr2 in
+                readTVar(tvar3) >>- { obj3 in
                     let (x2, y2) = (arr2[0], arr2[1])
                     let (x3, y3) = obj3.getXY()
                     
                     if x1 == 1 {
                         return retry()
                     } else {
-                        return writeTVar(tvar2, [x1+x3, y2+y3])                >>>
-                             { writeTVar(tvar3, SimpleObject(x2+x3, y2+y3))  } >>>
+                        return writeTVar(tvar2, [x1+x3, y2+y3])                >>|
+                             { writeTVar(tvar3, SimpleObject(x2+x3, y2+y3))  } >>|
                              { returnM()                                     }
                     }
                 }}}
@@ -214,8 +214,8 @@ class STMTests: XCTestCase {
         }
         
         var tvar = newTVar(someInt)
-        let stmTest1:STM<()> = modifyTVar(tvar, fun) >>>
-                             { readTVar(tvar)}       >>>=
+        let stmTest1:STM<()> = modifyTVar(tvar, fun) >>|
+                             { readTVar(tvar)}       >>-
                              { if $0 != 16 {
                                  return retry()
                              } else {

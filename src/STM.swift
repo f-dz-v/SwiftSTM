@@ -70,28 +70,29 @@ public func atomic<A> (stm:STM<A>) -> A {
     return res!
 }
 
-infix operator  >>>= {
+infix operator  >>- {
     associativity left
 }
 
-public func >>>= <A,B> (processor: STM<A>, processorGenerator: (A -> STM<B>)) -> STM<B> {
-    let res: _STM<B?> = processor.run >>>= {
+public func >>- <A,B> (processor: STM<A>, processorGenerator: (A -> STM<B>)) -> STM<B> {
+    let res: _STM<B?> = processor.run >>- {
         if let x = $0 {
             return processorGenerator(x).run
         } else {
             return returnM(nil)
+
         }
     }
 
     return STM(res)
 }
 
-infix operator  >>> {
+infix operator  >>| {
     associativity left
 }
 
-public func >>> <A,B> (processor: STM<A>, processorGenerator: (() -> STM<B>)) -> STM<B> {
-    let res: _STM<B?> = processor.run >>>= {
+public func >>| <A,B> (processor: STM<A>, processorGenerator: (() -> STM<B>)) -> STM<B> {
+    let res: _STM<B?> = processor.run >>- {
         if let x = $0 {
             return processorGenerator().run
         } else {
@@ -280,15 +281,15 @@ public func writeTVar<K,V> (tvar: TVarDictionary<K,V>, val: [K:V]) -> STM<()> {
 
 //MARK: modifyTVar
 public func modifyTVar<T: TVarProtocol> (tvar: TVar<T>, f: (T->T)) -> STM<()> {
-    return readTVar(tvar) >>>= { writeTVar(tvar, f($0)) }
+    return readTVar(tvar) >>- { writeTVar(tvar, f($0)) }
 }
 
 public func modifyTVar<T> (tvar: TVarArray<T>, f: ([T]->[T])) -> STM<()> {
-    return readTVar(tvar) >>>= { writeTVar(tvar, f($0)) }
+    return readTVar(tvar) >>- { writeTVar(tvar, f($0)) }
 }
 
 public func modifyTVar<K,V> (tvar: TVarDictionary<K,V>, f: ([K:V]->[K:V])) -> STM<()> {
-    return readTVar(tvar) >>>= { writeTVar(tvar, f($0)) }
+    return readTVar(tvar) >>- { writeTVar(tvar, f($0)) }
 }
 
 /**
@@ -323,14 +324,14 @@ private func returnM<A> (x: A) -> _STM<A> {
     return _STM.ret(x)
 }
 
-private func >>>= <A,B> (processor: _STM<A>, processorGenerator: (A -> _STM<B>)) -> _STM<B> {
+private func >>- <A,B> (processor: _STM<A>, processorGenerator: (A -> _STM<B>)) -> _STM<B> {
     return _STM( {st -> (B, Transactions) in
         let (x, st1) = processor.run(st)
         return processorGenerator(x).run(st1)
     })
 }
 
-private func >>> <A,B> (processor: _STM<A>, processorGenerator: (() -> _STM<B>)) -> _STM<B> {
+private func >> <A,B> (processor: _STM<A>, processorGenerator: (() -> _STM<B>)) -> _STM<B> {
     return _STM( {st -> (B, Transactions) in
         let (_, st1) = processor.run(st)
         return processorGenerator().run(st1)
