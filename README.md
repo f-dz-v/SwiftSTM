@@ -18,18 +18,29 @@ var tvar2 = newTVar(someArr2)
 var tvar3 = newTVar(someObj3)
 
 let stmTest1:STM<()> =
+<<<<<<< HEAD
         readTVar(tvar1).flatMap { x1   in
         readTVar(tvar2).flatMap { arr2 in
         readTVar(tvar3).flatMap { obj3 in
+=======
+        readTVar(tvar1) >>- { x1   in
+        readTVar(tvar2) >>- { arr2 in
+        readTVar(tvar3) >>- { obj3 in
+>>>>>>> origin/master
             let (x2, y2) = (arr2[0], arr2[1])
             let (x3, y3) = obj3.getXY()
             
             if x1 == 1 {
                 return retry()
             } else {
+<<<<<<< HEAD
                 return writeTVar(tvar2, [x1+x3, y2+y3]).flatMap_
                      { writeTVar(tvar3, SimpleObject(x2+x3, y2+y3))  }.flatMap_
                      { returnM()                                     }
+=======
+                return writeTVar(tvar2, [x1+x3, y2+y3])                >>|
+                     { writeTVar(tvar3, SimpleObject(x2+x3, y2+y3))  }
+>>>>>>> origin/master
             }
         }}}
 

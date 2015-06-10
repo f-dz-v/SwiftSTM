@@ -35,7 +35,7 @@ public class SimpleObject: TVarProtocol, Equatable {
         self.y = y
     }
     
-    public func copy() -> SimpleObject {
+    public func copy() -> TVarProtocol {
         return SimpleObject(self.x, self.y)
     }
     
@@ -71,7 +71,6 @@ class STMTests: XCTestCase {
                      { readTVar(tvar1)                     }.flatMap_
                      { writeTVar(tvar1, SimpleObject(6,9)) }.flatMap
                      { readTVar(tvar1)                     }
-
         let (x1, y1) = atomic(stmTest1).getXY()
         
         var tvar2 = newTVar(someObj)
@@ -135,7 +134,6 @@ class STMTests: XCTestCase {
         let stmTest2 = writeTVar(tvar, SimpleObject(6,9)).flatMap_
                      { readTVar(tvar) }
         
-        
         let queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0)
         let group = dispatch_group_create()
         
@@ -156,7 +154,8 @@ class STMTests: XCTestCase {
         
         (x1, y1) = readTVarAtomic(tvar).getXY()
         
-        XCTAssert((x1 == 16 && y1 == 29) && (x2 == 6 && y2 == 9), "retry OK")
+        println("[x1 == 16 y1 == 29] x1 = \(x1), y1 = \(y1)")
+        println("[x2 == 6  y2 == 9]  x2 = \(x2), y2 = \(y2)")
     }
     
     func testSTMSeveralTVars() {
@@ -214,6 +213,7 @@ class STMTests: XCTestCase {
         }
         
         var tvar = newTVar(someInt)
+
         let stmTest1:STM<()> = modifyTVar(tvar, fun).flatMap_
                              { readTVar(tvar)}.flatMap
                              { if $0 != 16 {
@@ -222,7 +222,6 @@ class STMTests: XCTestCase {
                                  return returnM()
                              }}
         let stmTest2 = writeTVar(tvar, 6).flatMap_ { readTVar(tvar) }
-        
         
         let queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0)
         let group = dispatch_group_create()
@@ -243,6 +242,6 @@ class STMTests: XCTestCase {
         x1 = readTVarAtomic(tvar)
         
         XCTAssert(x1 == 16 && x2 == 6, "retry OK")
-
+        
     }
 }
