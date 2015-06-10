@@ -31,6 +31,12 @@ public protocol TVarProtocol {
     func copy()-> TVarProtocol
 }
 
+extension TVarProtocol {
+    public func copy()-> TVarProtocol {
+        return self
+    }
+}
+
 public class STM<A> {
     private var run: _STM<A?>
     
@@ -41,6 +47,31 @@ public class STM<A> {
     private class func ret(val: _STM<A?>) -> STM {
         return STM(val)
     }
+    
+    public func flatMap <B> (processorGenerator: (A -> STM<B>)) -> STM<B> {
+        let res: _STM<B?> = self.run.flatMap {
+            if let x = $0 {
+                return processorGenerator(x).run
+            } else {
+                return returnM(nil)
+            }
+        }
+        
+        return STM<B>(res)
+    }
+    
+    public func flatMap_ <B> (processorGenerator: (() -> STM<B>)) -> STM<B> {
+        let res: _STM<B?> = self.run.flatMap {
+            if let x = $0 {
+                return processorGenerator().run
+            } else {
+                return returnM(nil)
+            }
+        }
+        
+        return STM<B>(res)
+    }
+    
 }
 
 public func returnM<A> (x:A) -> STM<A> {
@@ -56,7 +87,7 @@ public func atomic<A> (stm:STM<A>) -> A {
     var needRestart = false
     var res: A?
     var tr: Transactions
-    do {
+    repeat {
         needRestart = false
         (res, tr) = stm.run.run(Transactions())
         if res == nil {
@@ -66,41 +97,8 @@ public func atomic<A> (stm:STM<A>) -> A {
             needRestart = true
         }
     } while needRestart
-
+    
     return res!
-}
-
-infix operator  >>- {
-    associativity left
-}
-
-public func >>- <A,B> (processor: STM<A>, processorGenerator: (A -> STM<B>)) -> STM<B> {
-    let res: _STM<B?> = processor.run >>- {
-        if let x = $0 {
-            return processorGenerator(x).run
-        } else {
-            return returnM(nil)
-
-        }
-    }
-
-    return STM(res)
-}
-
-infix operator  >>| {
-    associativity left
-}
-
-public func >>| <A,B> (processor: STM<A>, processorGenerator: (() -> STM<B>)) -> STM<B> {
-    let res: _STM<B?> = processor.run >>- {
-        if let x = $0 {
-            return processorGenerator().run
-        } else {
-            return returnM(nil)
-        }
-    }
-
-    return STM(res)
 }
 
 public class TVar<T: TVarProtocol where T: Equatable>: _TVarPrivateProtocol {
@@ -109,7 +107,7 @@ public class TVar<T: TVarProtocol where T: Equatable>: _TVarPrivateProtocol {
     private var waitQ:[Int:UnsafeMutablePointer<pthread_cond_t>] = [:]
     
     private init(_ data: T) {
-        self.value = data.copy() as T
+        self.value = data.copy() as! T
         self.id = _IDGenerator.sharedInstance.requestID()
     }
     
@@ -119,7 +117,7 @@ public class TVar<T: TVarProtocol where T: Equatable>: _TVarPrivateProtocol {
     
     //maybe we should use .copy
     private func _setValue(x:TVarProtocol) {
-        self.value = x as T
+        self.value = x as! T
     }
     
     private func _getValue() -> TVarProtocol {
@@ -127,7 +125,7 @@ public class TVar<T: TVarProtocol where T: Equatable>: _TVarPrivateProtocol {
     }
     
     private func _isEqual(x:TVarProtocol) -> Bool {
-        return (self.value == (x as T))
+        return (self.value == (x as! T))
     }
     
     func _insertInWaitQ(key:Int, _ value:UnsafeMutablePointer<pthread_cond_t>) -> () {
@@ -137,13 +135,13 @@ public class TVar<T: TVarProtocol where T: Equatable>: _TVarPrivateProtocol {
         self.waitQ.removeValueForKey(key)
     }
     
-//    public func setValue(x:T) {
-//        self.value = x.copy()
-//    }
-//
-//    public func getValue() -> T {
-//        return self.value.copy()
-//    }
+    //    public func setValue(x:T) {
+    //        self.value = x.copy()
+    //    }
+    //
+    //    public func getValue() -> T {
+    //        return self.value.copy()
+    //    }
 }
 
 public class TVarArray<T: Equatable>: _TVarPrivateProtocol {
@@ -152,7 +150,7 @@ public class TVarArray<T: Equatable>: _TVarPrivateProtocol {
     private var waitQ:[Int:UnsafeMutablePointer<pthread_cond_t>] = [:]
     
     private init(_ data: [T]) {
-        self.value = data.copy() as [T]
+        self.value = data.copy() as! [T]
         self.id = _IDGenerator.sharedInstance.requestID()
     }
     
@@ -161,7 +159,7 @@ public class TVarArray<T: Equatable>: _TVarPrivateProtocol {
     }
     
     private func _setValue(x:TVarProtocol) {
-        self.value = x as [T]
+        self.value = x as! [T]
     }
     
     private func _getValue() -> TVarProtocol {
@@ -169,7 +167,7 @@ public class TVarArray<T: Equatable>: _TVarPrivateProtocol {
     }
     
     private func _isEqual(x:TVarProtocol) -> Bool {
-        return (self.value == (x as [T]))
+        return (self.value == (x as! [T]))
     }
     
     func _insertInWaitQ(key:Int, _ value:UnsafeMutablePointer<pthread_cond_t>) -> () {
@@ -187,7 +185,7 @@ public class TVarDictionary<K: Equatable, V: Equatable where K: Hashable>: _TVar
     private var waitQ:[Int:UnsafeMutablePointer<pthread_cond_t>] = [:]
     
     private init(_ data: [K:V]) {
-        self.value = data.copy() as [K:V]
+        self.value = data.copy() as! [K:V]
         self.id = _IDGenerator.sharedInstance.requestID()
     }
     
@@ -196,7 +194,7 @@ public class TVarDictionary<K: Equatable, V: Equatable where K: Hashable>: _TVar
     }
     
     private func _setValue(x:TVarProtocol) {
-        self.value = x as [K:V]
+        self.value = x as! [K:V]
     }
     
     private func _getValue() -> TVarProtocol {
@@ -204,9 +202,9 @@ public class TVarDictionary<K: Equatable, V: Equatable where K: Hashable>: _TVar
     }
     
     private func _isEqual(x:TVarProtocol) -> Bool {
-        return (self.value == (x as [K:V]))
+        return (self.value == (x as! [K:V]))
     }
-
+    
     func _insertInWaitQ(key:Int, _ value:UnsafeMutablePointer<pthread_cond_t>) -> () {
         self.waitQ[key] = value
     }
@@ -255,41 +253,41 @@ public func readTVar<K, V>(tvar: TVarDictionary<K, V>) -> STM<[K:V]> {
 }
 
 public func readTVarAtomic<T: TVarProtocol>(tvar: TVar<T>) -> T {
-    return (tvar.value.copy() as T)
+    return (tvar.value.copy() as! T)
 }
 
 public func readTVarAtomic<T>(tvar: TVarArray<T>) -> [T] {
-    return (tvar.value.copy() as [T])
+    return (tvar.value.copy() as! [T])
 }
 
 public func readTVarAtomic<K, V>(tvar: TVarDictionary<K, V>) -> [K:V] {
-    return (tvar.value.copy() as [K:V])
+    return (tvar.value.copy() as! [K:V])
 }
 
 //MARK: writeTVar
-public func writeTVar<T: TVarProtocol> (tvar: TVar<T>, val: T) -> STM<()> {
+public func writeTVar<T: TVarProtocol> (tvar: TVar<T>, _ val: T) -> STM<()> {
     return STM( _writeTVar(tvar, val) )
 }
 
-public func writeTVar<T> (tvar: TVarArray<T>, val: [T]) -> STM<()> {
+public func writeTVar<T> (tvar: TVarArray<T>, _ val: [T]) -> STM<()> {
     return STM(  _writeTVar(tvar, val) )
 }
 
-public func writeTVar<K,V> (tvar: TVarDictionary<K,V>, val: [K:V]) -> STM<()> {
+public func writeTVar<K,V> (tvar: TVarDictionary<K,V>, _ val: [K:V]) -> STM<()> {
     return STM( _writeTVar(tvar, val) )
 }
 
 //MARK: modifyTVar
-public func modifyTVar<T: TVarProtocol> (tvar: TVar<T>, f: (T->T)) -> STM<()> {
-    return readTVar(tvar) >>- { writeTVar(tvar, f($0)) }
+public func modifyTVar<T: TVarProtocol> (tvar: TVar<T>, _ f: (T->T)) -> STM<()> {
+    return readTVar(tvar).flatMap { writeTVar(tvar, f($0)) }
 }
 
-public func modifyTVar<T> (tvar: TVarArray<T>, f: ([T]->[T])) -> STM<()> {
-    return readTVar(tvar) >>- { writeTVar(tvar, f($0)) }
+public func modifyTVar<T> (tvar: TVarArray<T>, _ f: ([T]->[T])) -> STM<()> {
+    return readTVar(tvar).flatMap { writeTVar(tvar, f($0)) }
 }
 
-public func modifyTVar<K,V> (tvar: TVarDictionary<K,V>, f: ([K:V]->[K:V])) -> STM<()> {
-    return readTVar(tvar) >>- { writeTVar(tvar, f($0)) }
+public func modifyTVar<K,V> (tvar: TVarDictionary<K,V>, _ f: ([K:V]->[K:V])) -> STM<()> {
+    return readTVar(tvar).flatMap { writeTVar(tvar, f($0)) }
 }
 
 /**
@@ -317,25 +315,24 @@ private class _STM<A> {
     private class func ret(val:A) -> _STM {
         return _STM(val)
     }
-
+    
+    private func flatMap<B>(processorGenerator: (A -> _STM<B>)) -> _STM<B> {
+        return _STM<B>( {st -> (B, Transactions) in
+            let (x, st1) = self.run(st)
+            return processorGenerator(x).run(st1)
+        })
+    }
+    
+    private func flatMap_<B>(processorGenerator: (() -> _STM<B>)) -> _STM<B> {
+        return _STM<B>( {st -> (B, Transactions) in
+            let (_, st1) = self.run(st)
+            return processorGenerator().run(st1)
+        })
+    }
 }
 
 private func returnM<A> (x: A) -> _STM<A> {
     return _STM.ret(x)
-}
-
-private func >>- <A,B> (processor: _STM<A>, processorGenerator: (A -> _STM<B>)) -> _STM<B> {
-    return _STM( {st -> (B, Transactions) in
-        let (x, st1) = processor.run(st)
-        return processorGenerator(x).run(st1)
-    })
-}
-
-private func >> <A,B> (processor: _STM<A>, processorGenerator: (() -> _STM<B>)) -> _STM<B> {
-    return _STM( {st -> (B, Transactions) in
-        let (_, st1) = processor.run(st)
-        return processorGenerator().run(st1)
-    })
 }
 
 private func _newTVarSTM<T: TVarProtocol>(val: T) -> _STM<TVar<T>> {
@@ -364,27 +361,27 @@ private func _readTVar<K, V>(tvar: TVarDictionary<K, V>) -> _STM<[K:V]?> {
 }
 
 //MARK: writeTVar
-private func _writeTVar<T: TVarProtocol> (tvar: TVar<T>, val: T) -> _STM<()?> {
+private func _writeTVar<T: TVarProtocol> (tvar: TVar<T>, _ val: T) -> _STM<()?> {
     return _STM({ ((), __writeTVar(tvar, val, $0)) })
 }
 
-private func _writeTVar<T> (tvar: TVarArray<T>, val: [T]) -> _STM<()?> {
+private func _writeTVar<T> (tvar: TVarArray<T>, _ val: [T]) -> _STM<()?> {
     return _STM({ ((), __writeTVar(tvar, val, $0)) })
 }
 
-private func _writeTVar<K,V> (tvar: TVarDictionary<K,V>, val: [K:V]) -> _STM<()?> {
+private func _writeTVar<K,V> (tvar: TVarDictionary<K,V>, _ val: [K:V]) -> _STM<()?> {
     return _STM({ ((), __writeTVar(tvar, val, $0)) })
 }
 
 private protocol _TVarPrivateProtocol {
     // Looks like a dirty hack? so it is ;)
-
+    
     var waitQ:[Int:UnsafeMutablePointer<pthread_cond_t>] {get set}
-
+    
     func _setValue(x:TVarProtocol)
     func _getValue() -> TVarProtocol
     func _isEqual(x:TVarProtocol) -> Bool
-
+    
     func _insertInWaitQ(key:Int, _ value:UnsafeMutablePointer<pthread_cond_t>) -> ()
     func _deleteFromWaitQ(key:Int) -> ()
 }
@@ -407,13 +404,13 @@ private class Transactions {
         self.cond = UnsafeMutablePointer.alloc(sizeof(pthread_cond_t))
         pthread_cond_init(self.cond, nil)
     }
-
+    
     deinit {
         pthread_cond_destroy(self.cond)
         self.cond.dealloc(sizeof(pthread_cond_t))
         _IDGenerator.sharedInstance.freeID(self.id)
     }
-
+    
     private func commitAllTVars ()->() {
         for (id, val) in self.tvars {
             let (_ , writeLog) = self.log[id]!
@@ -444,10 +441,10 @@ private class Transactions {
         
         return res
     }
-
+    
     private func validateAndCommit() -> Bool {
         var res = true
-
+        
         if thereIsNoReads {
             withMutexDo(_BigSTMLock.sharedInstance.lock) {self.commitAllTVars()}
         } else {
@@ -470,14 +467,14 @@ private class Transactions {
                 }
             }
         }
-
+        
         return res
     }
     
     private func validateAndWait() -> Bool {
         var res = true
         var needInsert = true
-
+        
         withMutexDo(_BigSTMLock.sharedInstance.lock) {
             while(res) {
                 if !(self.thereIsNoReads) {
@@ -512,7 +509,7 @@ private class Transactions {
                 tvar._deleteFromWaitQ(self.id)
             }
         }
-
+        
         return res
     }
 }
@@ -522,7 +519,7 @@ private func orElse<A> (stm1:_STM<A>, stm2: _STM<A>) -> A {
     var res: A
     var tr: Transactions
     
-    do {
+    repeat {
         (res, tr) = stm1.run(Transactions())
         if ( tr.validateAndCommit() ) && ( !(tr.forceRetry) ) {
             return res
@@ -534,7 +531,7 @@ private func orElse<A> (stm1:_STM<A>, stm2: _STM<A>) -> A {
     return res
 }
 
-private func __readTVar<T: TVarProtocol> (tvar: TVar<T>, trans: Transactions) -> (T?, Transactions) {
+private func __readTVar<T: TVarProtocol> (tvar: TVar<T>, _ trans: Transactions) -> (T?, Transactions) {
     let id = tvar.id
     
     trans.thereIsNoReads = false
@@ -547,20 +544,20 @@ private func __readTVar<T: TVarProtocol> (tvar: TVar<T>, trans: Transactions) ->
     
     if let (readLog, writeLog) = trans.log[id]  {
         if let val = writeLog {
-            return ((val as T), trans)
+            return ((val as! T), trans)
         } else {
-            let copy = tvar.value.copy() as T
+            let copy = tvar.value.copy() as! T
             trans.log[id] = (copy, writeLog)
             return (copy, trans)
         }
     } else {
-        let copy = tvar.value.copy() as T
+        let copy = tvar.value.copy() as! T
         trans.log[id] = (copy, nil)
         return (copy, trans)
     }
 }
 
-private func __readTVar<T> (tvar: TVarArray<T>, trans: Transactions) -> ([T]?, Transactions) {
+private func __readTVar<T> (tvar: TVarArray<T>, _ trans: Transactions) -> ([T]?, Transactions) {
     let id = tvar.id
     
     trans.thereIsNoReads = false
@@ -573,20 +570,20 @@ private func __readTVar<T> (tvar: TVarArray<T>, trans: Transactions) -> ([T]?, T
     
     if let (readLog, writeLog) = trans.log[id]  {
         if let val = writeLog {
-            return ((val as [T]), trans)
+            return ((val as! [T]), trans)
         } else {
-            let copy = tvar.value.copy() as [T]
+            let copy = tvar.value.copy() as! [T]
             trans.log[id] = (copy, writeLog)
             return (copy, trans)
         }
     } else {
-        let copy = tvar.value.copy() as [T]
+        let copy = tvar.value.copy() as! [T]
         trans.log[id] = (copy, nil)
         return (copy, trans)
     }
 }
 
-private func __readTVar<K,V> (tvar: TVarDictionary<K,V>, trans: Transactions) -> ([K:V]?, Transactions) {
+private func __readTVar<K,V> (tvar: TVarDictionary<K,V>, _ trans: Transactions) -> ([K:V]?, Transactions) {
     let id = tvar.id
     
     trans.thereIsNoReads = false
@@ -599,20 +596,20 @@ private func __readTVar<K,V> (tvar: TVarDictionary<K,V>, trans: Transactions) ->
     
     if let (readLog, writeLog) = trans.log[id]  {
         if let val = writeLog {
-            return ((val as [K:V]), trans)
+            return ((val as! [K:V]), trans)
         } else {
-            let copy = tvar.value.copy() as [K:V]
+            let copy = tvar.value.copy() as! [K:V]
             trans.log[id] = (copy, writeLog)
             return (copy, trans)
         }
     } else {
-        let copy = tvar.value.copy() as [K:V]
+        let copy = tvar.value.copy() as! [K:V]
         trans.log[id] = (copy, nil)
         return (copy, trans)
     }
 }
 
-private func __writeTVar<T: TVarProtocol> (tvar: TVar<T>, val: T, trans: Transactions) -> Transactions {
+private func __writeTVar<T: TVarProtocol> (tvar: TVar<T>, _ val: T, _ trans: Transactions) -> Transactions {
     let id = tvar.id
     
     if let _ = trans.tvars[id] {
@@ -632,7 +629,7 @@ private func __writeTVar<T: TVarProtocol> (tvar: TVar<T>, val: T, trans: Transac
     }
 }
 
-private func __writeTVar<T> (tvar: TVarArray<T>, val: [T], trans: Transactions) -> Transactions {
+private func __writeTVar<T> (tvar: TVarArray<T>, _ val: [T], _ trans: Transactions) -> Transactions {
     let id = tvar.id
     
     if let _ = trans.tvars[id] {
@@ -651,8 +648,8 @@ private func __writeTVar<T> (tvar: TVarArray<T>, val: [T], trans: Transactions) 
         return trans
     }
 }
-    
-private func __writeTVar<K,V> (tvar: TVarDictionary<K,V>, val: [K:V], trans: Transactions) -> Transactions {
+
+private func __writeTVar<K,V> (tvar: TVarDictionary<K,V>, _ val: [K:V], _ trans: Transactions) -> Transactions {
     let id = tvar.id
     
     if let _ = trans.tvars[id] {
@@ -713,7 +710,7 @@ private class _IDGenerator  {
     }
     
     class var sharedInstance : _IDGenerator {
-    return _IDGeneratorSharedInstance
+        return _IDGeneratorSharedInstance
     }
     
     func requestID () -> Int {
@@ -756,92 +753,34 @@ private class _BigSTMLock  {
 //---------------------//
 //MARK: Extensions
 //---------------------//
-extension Int: TVarProtocol {
-    public func copy() -> TVarProtocol {
-        return self
-    }
-}
+extension Int: TVarProtocol {}
 
-extension Int8: TVarProtocol {
-    public func copy() -> TVarProtocol {
-        return self
-    }
-}
+extension Int8: TVarProtocol {}
 
-extension Int16: TVarProtocol {
-    public func copy() -> TVarProtocol {
-        return self
-    }
-}
+extension Int16: TVarProtocol {}
 
-extension Int32: TVarProtocol {
-    public func copy() -> TVarProtocol {
-        return self
-    }
-}
+extension Int32: TVarProtocol {}
 
-extension Int64: TVarProtocol {
-    public func copy() -> TVarProtocol {
-        return self
-    }
-}
+extension Int64: TVarProtocol {}
 
-extension UInt8: TVarProtocol {
-    public func copy() -> TVarProtocol {
-        return self
-    }
-}
+extension UInt8: TVarProtocol {}
 
-extension UInt16: TVarProtocol {
-    public func copy() -> TVarProtocol {
-        return self
-    }
-}
+extension UInt16: TVarProtocol {}
 
-extension UInt32: TVarProtocol {
-    public func copy() -> TVarProtocol {
-        return self
-    }
-}
+extension UInt32: TVarProtocol {}
 
-extension UInt64: TVarProtocol {
-    public func copy() -> TVarProtocol {
-        return self
-    }
-}
+extension UInt64: TVarProtocol {}
 
-extension String: TVarProtocol {
-    public func copy() -> TVarProtocol {
-        return self
-    }
-}
+extension String: TVarProtocol {}
 
-extension Bool: TVarProtocol {
-    public func copy() -> TVarProtocol {
-        return self
-    }
-}
+extension Bool: TVarProtocol {}
 
-extension Double: TVarProtocol {
-    public func copy() -> TVarProtocol {
-        return self
-    }
-}
+extension Double: TVarProtocol {}
 
-extension Float: TVarProtocol {
-    public func copy() -> TVarProtocol {
-        return self
-    }
-}
+extension Float: TVarProtocol {}
 
-extension Array: TVarProtocol {
-    public func copy() -> TVarProtocol {
-        return self
-    }
-}
+extension Array: TVarProtocol {}
 
-extension Dictionary: TVarProtocol {
-    public func copy() -> TVarProtocol {
-        return self
-    }
-}
+extension Dictionary: TVarProtocol {}
+
+extension Set: TVarProtocol {}

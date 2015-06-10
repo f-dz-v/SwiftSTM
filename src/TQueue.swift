@@ -34,56 +34,56 @@ public func newTQueueSTM<T> () -> STM<TQueue<T>> {
     return returnM(TQueue())
 }
 
-public func writeTQueue<T> (queue: TQueue<T>, val: T) -> STM<()> {
+public func writeTQueue<T> (queue: TQueue<T>, _ val: T) -> STM<()> {
     return modifyTVar(queue._q, {$0 + [val]})
 }
 
 public func readTQueue<T> (queue: TQueue<T>) -> STM<T> {
-    return ( readTVar(queue._q) >>- { xs in
+    return ( readTVar(queue._q).flatMap { xs in
         if xs.isEmpty {
             return retry()
         }
         let res = xs[0]
         var newArr = xs
         newArr.removeAtIndex(0)
-        return (writeTVar(queue._q, newArr) >>| {returnM(res)})
+        return (writeTVar(queue._q, newArr).flatMap_ {returnM(res)})
         } )
 }
 
 // TODO: orElse
 public func tryReadTQueue<T> (queue: TQueue<T>) -> STM<T?> {
-    return ( readTVar(queue._q) >>- { xs in
+    return ( readTVar(queue._q).flatMap { xs in
         if xs.isEmpty {
             return returnM(nil)
         }
         let res = xs[0]
         var newArr = xs
         newArr.removeAtIndex(0)
-        return writeTVar(queue._q, newArr) >>| {returnM(res)}
+        return writeTVar(queue._q, newArr).flatMap_ {returnM(res)}
         } )
 }
 
-public func unGetTQueue<T> (queue: TQueue<T>, val: T) -> STM<()> {
+public func unGetTQueue<T> (queue: TQueue<T>, _ val: T) -> STM<()> {
     return modifyTVar(queue._q, {[val] + $0})
 }
 
 public func peekTQueue<T> (queue: TQueue<T>) -> STM<T> {
-    return ( readTQueue(queue) >>- { x in
-             unGetTQueue(queue, x) >>| {
-             returnM(x)
-           }})
+    return ( readTQueue(queue).flatMap { x in
+        unGetTQueue(queue, x).flatMap_ {
+            returnM(x)
+        }})
 }
 
 public func tryPeekTQueue<T> (queue: TQueue<T>) -> STM<T?> {
-    return ( tryReadTQueue(queue) >>- { x in
-             if let _x = x {
-                return unGetTQueue(queue, _x) >>| { returnM(_x) }
-             } else {
-                return returnM(nil)
-             }
-           })
+    return ( tryReadTQueue(queue).flatMap { x in
+        if let _x = x {
+            return unGetTQueue(queue, _x).flatMap_ { returnM(_x) }
+        } else {
+            return returnM(nil)
+        }
+        })
 }
 
 public func isEmptyTQueue<T> (queue: TQueue<T>) -> STM<Bool> {
-    return ( readTVar(queue._q) >>- { returnM($0.isEmpty)} )
+    return ( readTVar(queue._q).flatMap { returnM($0.isEmpty)} )
 }

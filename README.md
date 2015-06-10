@@ -3,7 +3,7 @@ SwiftSTM
 This library provides Haskell-like Software Transactional Memory for Swift
 
 Warning:
-- Code is in experimental state and not tested for production
+- This is proof of concept code which not tested for production
 
 Example
 ========
@@ -18,17 +18,17 @@ var tvar2 = newTVar(someArr2)
 var tvar3 = newTVar(someObj3)
 
 let stmTest1:STM<()> =
-        readTVar(tvar1) >>>= { x1   in
-        readTVar(tvar2) >>>= { arr2 in
-        readTVar(tvar3) >>>= { obj3 in
+        readTVar(tvar1).flatMap { x1   in
+        readTVar(tvar2).flatMap { arr2 in
+        readTVar(tvar3).flatMap { obj3 in
             let (x2, y2) = (arr2[0], arr2[1])
             let (x3, y3) = obj3.getXY()
             
             if x1 == 1 {
                 return retry()
             } else {
-                return writeTVar(tvar2, [x1+x3, y2+y3])                >>>
-                     { writeTVar(tvar3, SimpleObject(x2+x3, y2+y3))  } >>>
+                return writeTVar(tvar2, [x1+x3, y2+y3]).flatMap_
+                     { writeTVar(tvar3, SimpleObject(x2+x3, y2+y3))  }.flatMap_
                      { returnM()                                     }
             }
         }}}
