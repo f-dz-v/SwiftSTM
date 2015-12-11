@@ -28,27 +28,29 @@ import Foundation
 //MARK: Public API
 //---------------------//
 public protocol TVarProtocol {
-    func copy()-> TVarProtocol
+    init(copy: TVarProtocol)
 }
 
 extension TVarProtocol {
-    public func copy()-> TVarProtocol {
-        return self
+    private func copy() -> Self {
+        return Self(copy: self)
     }
 }
 
-public class STM<A> {
+extension TVarProtocol {
+    public init(copy: TVarProtocol){
+        self = copy as! Self
+    }
+}
+
+public struct STM<A> {
     private var run: _STM<A?>
     
     private init(_ x: _STM<A?>) {
         run = x
     }
     
-    private class func ret(val: _STM<A?>) -> STM {
-        return STM(val)
-    }
-    
-    public func flatMap <B> (processorGenerator: (A -> STM<B>)) -> STM<B> {
+    public func flatMap<B> (processorGenerator: (A -> STM<B>)) -> STM<B> {
         let res: _STM<B?> = self.run.flatMap {
             if let x = $0 {
                 return processorGenerator(x).run
@@ -60,9 +62,9 @@ public class STM<A> {
         return STM<B>(res)
     }
     
-    public func flatMap_ <B> (processorGenerator: (() -> STM<B>)) -> STM<B> {
+    public func flatMap_<B> (processorGenerator: (() -> STM<B>)) -> STM<B> {
         let res: _STM<B?> = self.run.flatMap {
-            if let x = $0 {
+            if let _ = $0 {
                 return processorGenerator().run
             } else {
                 return returnM(nil)
@@ -75,7 +77,7 @@ public class STM<A> {
 }
 
 public func returnM<A> (x:A) -> STM<A> {
-    return STM.ret(returnM(x))
+    return STM(returnM(x))
 }
 
 
@@ -97,22 +99,37 @@ public func atomic<A> (stm:STM<A>) -> A {
             needRestart = true
         }
     } while needRestart
-    
+
     return res!
 }
 
-public class TVar<T: TVarProtocol where T: Equatable>: _TVarPrivateProtocol {
-    private var value: T
+public class TVarCommon {
     private var id: Int
-    private var waitQ:[Int:UnsafeMutablePointer<pthread_cond_t>] = [:]
+    private var waitQ:[Int:dispatch_semaphore_t] = [:]
+    private var fineGrainLock = _SpinlockWrapped()
     
-    private init(_ data: T) {
-        self.value = data.copy() as! T
-        self.id = _IDGenerator.sharedInstance.requestID()
+    private init() {
+        self.id = _IDGenerator.requestID()
+    }
+    
+    private func _insertInWaitQ(key:Int, _ value:dispatch_semaphore_t) -> () {
+        self.waitQ[key] = value
+    }
+    private func _deleteFromWaitQ(key:Int) -> () {
+        self.waitQ.removeValueForKey(key)
     }
     
     deinit {
-        _IDGenerator.sharedInstance.freeID(self.id)
+        _IDGenerator.freeID(self.id)
+    }
+}
+
+public final class TVar<T: TVarProtocol where T: Equatable>: TVarCommon, _TVarPrivateProtocol {
+    private var value: T
+    
+    private init(_ data: T) {
+        self.value = data.copy()
+        super.init()
     }
     
     //maybe we should use .copy
@@ -128,34 +145,21 @@ public class TVar<T: TVarProtocol where T: Equatable>: _TVarPrivateProtocol {
         return (self.value == (x as! T))
     }
     
-    func _insertInWaitQ(key:Int, _ value:UnsafeMutablePointer<pthread_cond_t>) -> () {
-        self.waitQ[key] = value
-    }
-    func _deleteFromWaitQ(key:Int) -> () {
-        self.waitQ.removeValueForKey(key)
-    }
-    
-    //    public func setValue(x:T) {
-    //        self.value = x.copy()
-    //    }
-    //
-    //    public func getValue() -> T {
-    //        return self.value.copy()
-    //    }
+//    public func setValue(x:T) {
+//        self.value = x.copy()
+//    }
+//
+//    public func getValue() -> T {
+//        return self.value.copy()
+//    }
 }
 
-public class TVarArray<T: Equatable>: _TVarPrivateProtocol {
+public final class TVarArray<T: Equatable>: TVarCommon, _TVarPrivateProtocol {
     private var value: [T]
-    private var id: Int
-    private var waitQ:[Int:UnsafeMutablePointer<pthread_cond_t>] = [:]
     
     private init(_ data: [T]) {
-        self.value = data.copy() as! [T]
-        self.id = _IDGenerator.sharedInstance.requestID()
-    }
-    
-    deinit {
-        _IDGenerator.sharedInstance.freeID(self.id)
+        self.value = data.copy()
+        super.init()
     }
     
     private func _setValue(x:TVarProtocol) {
@@ -169,28 +173,14 @@ public class TVarArray<T: Equatable>: _TVarPrivateProtocol {
     private func _isEqual(x:TVarProtocol) -> Bool {
         return (self.value == (x as! [T]))
     }
-    
-    func _insertInWaitQ(key:Int, _ value:UnsafeMutablePointer<pthread_cond_t>) -> () {
-        self.waitQ[key] = value
-    }
-    
-    func _deleteFromWaitQ(key:Int) -> () {
-        self.waitQ.removeValueForKey(key)
-    }
 }
 
-public class TVarDictionary<K: Equatable, V: Equatable where K: Hashable>: _TVarPrivateProtocol {
+public final class TVarDictionary<K: Equatable, V: Equatable where K: Hashable>: TVarCommon,_TVarPrivateProtocol {
     private var value: [K:V]
-    private var id: Int
-    private var waitQ:[Int:UnsafeMutablePointer<pthread_cond_t>] = [:]
     
     private init(_ data: [K:V]) {
-        self.value = data.copy() as! [K:V]
-        self.id = _IDGenerator.sharedInstance.requestID()
-    }
-    
-    deinit {
-        _IDGenerator.sharedInstance.freeID(self.id)
+        self.value = data.copy()
+        super.init()
     }
     
     private func _setValue(x:TVarProtocol) {
@@ -203,14 +193,6 @@ public class TVarDictionary<K: Equatable, V: Equatable where K: Hashable>: _TVar
     
     private func _isEqual(x:TVarProtocol) -> Bool {
         return (self.value == (x as! [K:V]))
-    }
-    
-    func _insertInWaitQ(key:Int, _ value:UnsafeMutablePointer<pthread_cond_t>) -> () {
-        self.waitQ[key] = value
-    }
-    
-    func _deleteFromWaitQ(key:Int) -> () {
-        self.waitQ.removeValueForKey(key)
     }
 }
 
@@ -253,15 +235,15 @@ public func readTVar<K, V>(tvar: TVarDictionary<K, V>) -> STM<[K:V]> {
 }
 
 public func readTVarAtomic<T: TVarProtocol>(tvar: TVar<T>) -> T {
-    return (tvar.value.copy() as! T)
+    return (tvar.value.copy())
 }
 
 public func readTVarAtomic<T>(tvar: TVarArray<T>) -> [T] {
-    return (tvar.value.copy() as! [T])
+    return (tvar.value.copy())
 }
 
 public func readTVarAtomic<K, V>(tvar: TVarDictionary<K, V>) -> [K:V] {
-    return (tvar.value.copy() as! [K:V])
+    return (tvar.value.copy())
 }
 
 //MARK: writeTVar
@@ -294,14 +276,14 @@ public func modifyTVar<K,V> (tvar: TVarDictionary<K,V>, _ f: ([K:V]->[K:V])) -> 
 Restarts transaction.
 */
 public func retry<A>() -> STM<A> {
-    return STM.ret(returnM(nil))
+    return STM(returnM(nil))
 }
 
 //---------------------//
 //MARK: Private section
 //---------------------//
 
-private class _STM<A> {
+private struct _STM<A> {
     private var run: (Transactions -> (A, Transactions))
     
     private init(_ x: A) {
@@ -311,11 +293,7 @@ private class _STM<A> {
     private init(_ f: Transactions -> (A, Transactions)) {
         run = f
     }
-    
-    private class func ret(val:A) -> _STM {
-        return _STM(val)
-    }
-    
+
     private func flatMap<B>(processorGenerator: (A -> _STM<B>)) -> _STM<B> {
         return _STM<B>( {st -> (B, Transactions) in
             let (x, st1) = self.run(st)
@@ -332,7 +310,7 @@ private class _STM<A> {
 }
 
 private func returnM<A> (x: A) -> _STM<A> {
-    return _STM.ret(x)
+    return _STM(x)
 }
 
 private func _newTVarSTM<T: TVarProtocol>(val: T) -> _STM<TVar<T>> {
@@ -375,14 +353,17 @@ private func _writeTVar<K,V> (tvar: TVarDictionary<K,V>, _ val: [K:V]) -> _STM<(
 
 private protocol _TVarPrivateProtocol {
     // Looks like a dirty hack? so it is ;)
+
+    var waitQ:[Int:dispatch_semaphore_t] {get set}
     
-    var waitQ:[Int:UnsafeMutablePointer<pthread_cond_t>] {get set}
-    
+    var id: Int {get}
+    var fineGrainLock: _SpinlockWrapped {get}
+
     func _setValue(x:TVarProtocol)
     func _getValue() -> TVarProtocol
     func _isEqual(x:TVarProtocol) -> Bool
-    
-    func _insertInWaitQ(key:Int, _ value:UnsafeMutablePointer<pthread_cond_t>) -> ()
+
+    func _insertInWaitQ(key:Int, _ value:dispatch_semaphore_t) -> ()
     func _deleteFromWaitQ(key:Int) -> ()
 }
 
@@ -390,36 +371,87 @@ private typealias TVarReadLog = protocol<TVarProtocol>?
 private typealias TVarWriteLog = protocol<TVarProtocol>?
 private typealias TVarLog = (TVarReadLog, TVarWriteLog)
 
-private class Transactions {
+private let FINE_LOCK_GRAB_ATTEMPTS = 1
+
+private final class Transactions {
     private var log:[Int: TVarLog] = [:]
     private var tvars:[Int: _TVarPrivateProtocol] = [:]
+    private var fineLocks: [(Int, _SpinlockWrapped)] = []
+    private var sortOnceToken = dispatch_once_t()
     private var forceRetry = false
     private var thereIsNoReads = true
     private var id:Int
-    private var cond: UnsafeMutablePointer<pthread_cond_t>
+    private var sema: dispatch_semaphore_t = dispatch_semaphore_create(0)
     // private var env: UnsafeMutablePointer<Int32>
     
     init() {
-        self.id = _IDGenerator.sharedInstance.requestID()
-        self.cond = UnsafeMutablePointer.alloc(sizeof(pthread_cond_t))
-        pthread_cond_init(self.cond, nil)
+        self.id = _IDGenerator.requestID()
+    }
+
+    deinit {
+        _IDGenerator.freeID(self.id)
+    }
+
+    private func grabFineLocks() {
+        dispatch_once(&sortOnceToken) {
+            self.fineLocks.sortInPlace{ $0.0 < $1.0 }
+        }
+        
+        var unableToGrabAllLocks = false
+        var n = FINE_LOCK_GRAB_ATTEMPTS
+        
+        repeat {
+            withSpinlockDo(&_COARSE_LOCK) {
+                for (_ , fineLock) in self.fineLocks {
+                    unableToGrabAllLocks = !fineLock.tryLock()
+                    if unableToGrabAllLocks {
+                        break
+                    }
+                }
+            }
+            if (unableToGrabAllLocks) && (n == 0) {
+//                thread_switch(mach_port_name_t(MACH_PORT_NULL), SWITCH_OPTION_DEPRESS, min_timeout)
+//                swtch_pri(0);
+                n = FINE_LOCK_GRAB_ATTEMPTS
+                sched_yield()
+            } else {
+                n -= 1 
+            }
+        } while unableToGrabAllLocks
     }
     
-    deinit {
-        pthread_cond_destroy(self.cond)
-        self.cond.dealloc(sizeof(pthread_cond_t))
-        _IDGenerator.sharedInstance.freeID(self.id)
+    private func releaseFineLocks() {
+        withSpinlockDo(&_COARSE_LOCK) {
+            for (_ , fineLock) in self.fineLocks.reverse() {
+                fineLock.unlock()
+            }
+        }
+    }
+    
+    private func releaseFineLocksAndWait() {
+        withSpinlockDo(&_COARSE_LOCK) {
+            for (_, fineLock) in self.fineLocks.reverse() {
+                fineLock.unlock()
+            }
+        }
+        dispatch_semaphore_wait(self.sema, DISPATCH_TIME_FOREVER)
+    }
+    
+    private func withFineGrainLocks(f: ()->()) {
+        grabFineLocks()
+        f()
+        releaseFineLocks()
     }
     
     private func commitAllTVars ()->() {
         for (id, val) in self.tvars {
-            let (_ , writeLog) = self.log[id]!
-            if let newVal = writeLog {
+            if case let (_ , newVal?) = self.log[id]! {
                 val._setValue(newVal.copy())
-                for (_, cond) in val.waitQ {
-                    pthread_cond_signal(cond)
+                for (_, sema) in val.waitQ {
+                    dispatch_semaphore_signal(sema)
                 }
             }
+
         }
     }
     
@@ -427,38 +459,31 @@ private class Transactions {
         var res = true
         
         if !thereIsNoReads {
-            withMutexDo(_BigSTMLock.sharedInstance.lock) {
-                for (id, (readLog, _)) in self.log {
-                    if let readVal = readLog {
-                        if !( self.tvars[id]!._isEqual(readVal) ) {
-                            res = false
-                            break
-                        }
-                    }
+            withFineGrainLocks() {
+                for case let (id, (readVal?, _)) in self.log
+                    where !( self.tvars[id]!._isEqual(readVal) ) {
+                        res = false
+                        break
                 }
             }
         }
         
         return res
     }
-    
+
     private func validateAndCommit() -> Bool {
         var res = true
-        
+
         if thereIsNoReads {
-            withMutexDo(_BigSTMLock.sharedInstance.lock) {self.commitAllTVars()}
+            withFineGrainLocks {self.commitAllTVars()}
         } else {
             var allReadsAreValidated = true
             
-            withMutexDo(_BigSTMLock.sharedInstance.lock) {
-                for (id, (readLog, _)) in self.log {
-                    if let readVal = readLog {
-                        //if !( readVal.isEqual(self.tvars[id]!._getValue()) ) {
-                        if !( self.tvars[id]!._isEqual(readVal) ) {
-                            allReadsAreValidated = false
-                            break
-                        }
-                    }
+            withFineGrainLocks {
+                for case let (id, (readVal?, _)) in self.log
+                    where !( self.tvars[id]!._isEqual(readVal) ) {
+                        allReadsAreValidated = false
+                        break
                 }
                 if allReadsAreValidated {
                     self.commitAllTVars()
@@ -467,49 +492,45 @@ private class Transactions {
                 }
             }
         }
-        
+
         return res
     }
     
     private func validateAndWait() -> Bool {
         var res = true
         var needInsert = true
-        
-        withMutexDo(_BigSTMLock.sharedInstance.lock) {
-            while(res) {
-                if !(self.thereIsNoReads) {
-                    for (id, (readLog, _)) in self.log {
-                        if let readVal = readLog {
-                            if !( self.tvars[id]!._isEqual(readVal) ) {
-                                res = false
-                                break
-                            }
+
+        while(res) {
+            grabFineLocks()
+            if !(self.thereIsNoReads) {
+                for case let  (id, (readVal?, _)) in self.log
+                    where !( self.tvars[id]!._isEqual(readVal) ) {
+                        res = false
+                        break
+                }
+            }
+            
+            if res {
+                if needInsert {
+                    for (id, tvar) in self.tvars {
+                        if case (_?, _) = self.log[id]! {
+                            tvar._insertInWaitQ(self.id, self.sema)
                         }
                     }
+                    needInsert = false
                 }
-                
-                if res {
-                    if needInsert {
-                        for (id, tvar) in self.tvars {
-                            let (readVal, _) = self.log[id]!
-                            if readVal != nil {
-                                tvar._insertInWaitQ(self.id, self.cond)
-                            }
-                        }
-                        needInsert = false
-                    }
-                    pthread_cond_wait(self.cond, _BigSTMLock.sharedInstance.lock)
-                }
+                releaseFineLocksAndWait()
             }
         }
         
         for (id, tvar) in self.tvars {
-            let (readVal, _) = self.log[id]!
-            if readVal != nil {
+            if case (_?, _) = self.log[id]! {
                 tvar._deleteFromWaitQ(self.id)
             }
         }
         
+        releaseFineLocks()
+
         return res
     }
 }
@@ -531,92 +552,86 @@ private func orElse<A> (stm1:_STM<A>, stm2: _STM<A>) -> A {
     return res
 }
 
-private func __readTVar<T: TVarProtocol> (tvar: TVar<T>, _ trans: Transactions) -> (T?, Transactions) {
+private func __readTVarCommon(tvar: _TVarPrivateProtocol, _ trans: Transactions) -> Int {
     let id = tvar.id
     
     trans.thereIsNoReads = false
     
-    if let _ = trans.tvars[id] {
-        
-    } else {
+    if trans.tvars[id] == nil {
         trans.tvars[id] = tvar
+        trans.fineLocks.append((id, tvar.fineGrainLock))
     }
     
-    if let (readLog, writeLog) = trans.log[id]  {
+    return id
+}
+
+private func __readTVar<T: TVarProtocol> (tvar: TVar<T>, _ trans: Transactions) -> (T?, Transactions) {
+    let id = __readTVarCommon(tvar, trans)
+    
+    if let (_, writeLog) = trans.log[id]  {
         if let val = writeLog {
             return ((val as! T), trans)
         } else {
-            let copy = tvar.value.copy() as! T
+            let copy = tvar.value.copy()
             trans.log[id] = (copy, writeLog)
             return (copy, trans)
         }
     } else {
-        let copy = tvar.value.copy() as! T
+        let copy = tvar.value.copy()
         trans.log[id] = (copy, nil)
         return (copy, trans)
     }
 }
 
 private func __readTVar<T> (tvar: TVarArray<T>, _ trans: Transactions) -> ([T]?, Transactions) {
-    let id = tvar.id
+    let id = __readTVarCommon(tvar, trans)
     
-    trans.thereIsNoReads = false
-    
-    if let _ = trans.tvars[id] {
-        
-    } else {
-        trans.tvars[id] = tvar
-    }
-    
-    if let (readLog, writeLog) = trans.log[id]  {
+    if let (_, writeLog) = trans.log[id]  {
         if let val = writeLog {
             return ((val as! [T]), trans)
         } else {
-            let copy = tvar.value.copy() as! [T]
+            let copy = tvar.value.copy()
             trans.log[id] = (copy, writeLog)
             return (copy, trans)
         }
     } else {
-        let copy = tvar.value.copy() as! [T]
+        let copy = tvar.value.copy()
         trans.log[id] = (copy, nil)
         return (copy, trans)
     }
 }
 
 private func __readTVar<K,V> (tvar: TVarDictionary<K,V>, _ trans: Transactions) -> ([K:V]?, Transactions) {
-    let id = tvar.id
+    let id = __readTVarCommon(tvar, trans)
     
-    trans.thereIsNoReads = false
-    
-    if let _ = trans.tvars[id] {
-        
-    } else {
-        trans.tvars[id] = tvar
-    }
-    
-    if let (readLog, writeLog) = trans.log[id]  {
+    if let (_, writeLog) = trans.log[id]  {
         if let val = writeLog {
             return ((val as! [K:V]), trans)
         } else {
-            let copy = tvar.value.copy() as! [K:V]
+            let copy = tvar.value.copy()
             trans.log[id] = (copy, writeLog)
             return (copy, trans)
         }
     } else {
-        let copy = tvar.value.copy() as! [K:V]
+        let copy = tvar.value.copy()
         trans.log[id] = (copy, nil)
         return (copy, trans)
     }
 }
 
-private func __writeTVar<T: TVarProtocol> (tvar: TVar<T>, _ val: T, _ trans: Transactions) -> Transactions {
+private func __writeTVarCommon(tvar: _TVarPrivateProtocol, _ trans: Transactions) -> Int {
     let id = tvar.id
     
-    if let _ = trans.tvars[id] {
-        
-    } else {
+    if trans.tvars[id] == nil {
         trans.tvars[id] = tvar
+        trans.fineLocks.append((id, tvar.fineGrainLock))
     }
+    
+    return id
+}
+
+private func __writeTVar<T: TVarProtocol> (tvar: TVar<T>, _ val: T, _ trans: Transactions) -> Transactions {
+    let id = __writeTVarCommon(tvar, trans)
     
     if let (readLog, writeLog) = trans.log[id] {
         var newWriteLog = writeLog
@@ -630,13 +645,7 @@ private func __writeTVar<T: TVarProtocol> (tvar: TVar<T>, _ val: T, _ trans: Tra
 }
 
 private func __writeTVar<T> (tvar: TVarArray<T>, _ val: [T], _ trans: Transactions) -> Transactions {
-    let id = tvar.id
-    
-    if let _ = trans.tvars[id] {
-        
-    } else {
-        trans.tvars[id] = tvar
-    }
+    let id = __writeTVarCommon(tvar, trans)
     
     if let (readLog, writeLog) = trans.log[id] {
         var newWriteLog = writeLog
@@ -648,15 +657,9 @@ private func __writeTVar<T> (tvar: TVarArray<T>, _ val: [T], _ trans: Transactio
         return trans
     }
 }
-
-private func __writeTVar<K,V> (tvar: TVarDictionary<K,V>, _ val: [K:V], _ trans: Transactions) -> Transactions {
-    let id = tvar.id
     
-    if let _ = trans.tvars[id] {
-        
-    } else {
-        trans.tvars[id] = tvar
-    }
+private func __writeTVar<K,V> (tvar: TVarDictionary<K,V>, _ val: [K:V], _ trans: Transactions) -> Transactions {
+    let id = __writeTVarCommon(tvar, trans)
     
     if let (readLog, writeLog) = trans.log[id] {
         var newWriteLog = writeLog
@@ -672,11 +675,10 @@ private func __writeTVar<K,V> (tvar: TVarDictionary<K,V>, _ val: [K:V], _ trans:
 //---------------------//
 //MARK: Private utils
 //---------------------//
-
-private func withMutexDo(mutex: UnsafeMutablePointer<pthread_mutex_t>, f: ()->()) {
-    pthread_mutex_lock(mutex)
+private func withSpinlockDo(lock: UnsafeMutablePointer<OSSpinLock>, f: ()->()) {
+    OSSpinLockLock(lock)
     f()
-    pthread_mutex_unlock(mutex)
+    OSSpinLockUnlock(lock)
 }
 
 struct StackSafe<T> {
@@ -693,29 +695,16 @@ struct StackSafe<T> {
     }
 }
 
-private let _IDGeneratorSharedInstance = _IDGenerator()
-private class _IDGenerator  {
+private var _IDGenerator = __IDGenerator()
+private struct __IDGenerator  {
     private var returned:StackSafe<Int> = StackSafe<Int>()
     private var next = 0
-    private var lock: UnsafeMutablePointer<pthread_mutex_t>
+    private var spinlock: OSSpinLock = OS_SPINLOCK_INIT
     
-    private init() {
-        self.lock = UnsafeMutablePointer.alloc(sizeof(pthread_mutex_t))
-        pthread_mutex_init(self.lock, nil)
-    }
-    
-    deinit {
-        pthread_mutex_destroy(self.lock)
-        self.lock.dealloc(sizeof(pthread_mutex_t))
-    }
-    
-    class var sharedInstance : _IDGenerator {
-        return _IDGeneratorSharedInstance
-    }
-    
-    func requestID () -> Int {
+
+    mutating func requestID () -> Int {
         var res = 0
-        withMutexDo(self.lock) {
+        withSpinlockDo(&spinlock) {
             if let id = self.returned.pop() {
                 res = id
             } else {
@@ -726,27 +715,26 @@ private class _IDGenerator  {
         return res
     }
     
-    func freeID (id: Int) -> () {
-        withMutexDo(self.lock) { self.returned.push(id) }
+    mutating func freeID (id: Int) -> () {
+        withSpinlockDo(&spinlock) { self.returned.push(id) }
     }
 }
 
-private let _BigSTMLockSharedInstance = _BigSTMLock()
-private class _BigSTMLock  {
-    private var lock: UnsafeMutablePointer<pthread_mutex_t>
+private var _COARSE_LOCK = OS_SPINLOCK_INIT
+
+private final class _SpinlockWrapped {
+    private var _spinlock: OSSpinLock = OS_SPINLOCK_INIT
     
-    private init() {
-        self.lock = UnsafeMutablePointer.alloc(sizeof(pthread_mutex_t))
-        pthread_mutex_init(self.lock, nil)
+    private func lock() {
+        OSSpinLockLock(&_spinlock)
     }
     
-    deinit {
-        pthread_mutex_destroy(self.lock)
-        self.lock.dealloc(sizeof(pthread_mutex_t))
+    private func tryLock() -> Bool {
+        return OSSpinLockTry(&_spinlock)
     }
     
-    class var sharedInstance : _BigSTMLock {
-        return _BigSTMLockSharedInstance
+    private func unlock() {
+        OSSpinLockUnlock(&_spinlock)
     }
 }
 
