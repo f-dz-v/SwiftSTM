@@ -402,10 +402,16 @@ private final class Transactions {
         
         repeat {
             withSpinlockDo(&_COARSE_LOCK) {
+                var grabbedCount = 0
                 for (_ , fineLock) in self.fineLocks {
                     unableToGrabAllLocks = !fineLock.tryLock()
                     if unableToGrabAllLocks {
+                        for i in 0..<grabbedCount {
+                            self.fineLocks[i].1.unlock()
+                        }
                         break
+                    } else {
+                        grabbedCount += 1
                     }
                 }
             }
